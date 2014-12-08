@@ -137,5 +137,7 @@ app.post('/slack', function (req, res) {
   res.status(200).end("Request queued");
 });
 
-app.listen(5287);
-console.log('Server listening on http://derpy.eridi.us:5287/');
+var port = config.port || 5287;
+app.listen(port);
+var servername = config.server_name || "0.0.0.0";
+console.log('Server listening on http://' + servername + ':' + port + '/');

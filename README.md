@@ -7,6 +7,10 @@ This is a really hacky gateway between GroupMe and Slack. It currently relies on
 The config file is stored in `~/.config/slack-groupme-gateway/config.toml` and should look like the following:
 
 ```toml
+# Server configuration
+server_name = "my.server.com" # used for display only
+#port = 5287
+
 # GroupMe configuration
 [groupme]
 
