@@ -32,7 +32,7 @@ user_id = "USLACKBOT" # user id for the bot
 # Gateways
 [[gateways]]
 groupme = "1234" # group id of the configured GroupMe group
-sack = "gateway-channel" # name of the configured Slack channel
+slack = "gateway-channel" # name of the configured Slack channel
 ```
 
 ## Slack
