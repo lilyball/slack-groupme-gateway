@@ -23,11 +23,11 @@ server_name = "my.server.com" # used for display only
 # Slack configuration
 [slack]
 webhook_url = "https://hooks.slack.com/services/..." # Incoming Web Hook URL
-token = "1234abcd"
 user_id = "USLACKBOT" # user id for the bot
 
   [[slack.channels]]
   name = "gateway-channel"
+  token = "1234abcd"
 
 # Gateways
 [[gateways]]

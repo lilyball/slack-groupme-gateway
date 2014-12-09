@@ -86,17 +86,29 @@ app.post('/groupme', function (req, res) {
   }
   if (req.body.user_id == gateway.groupme.user_id) {
     // it just received its own message, ignore it
+    res.status(200).end("Ignoring message from self");
+    return;
+  } else if (!gateway.groupme.user_id) {
+    // we don't know what the user_id is
+    // ignore all messages for the moment
+    console.log(util.format("No user_id set for group %s, ignoring message: %j", gateway.groupme.name, req.body));
+    res.status(200).end("Ignoring message to group without user_id configured");
     return;
   }
   var text = req.body.text;
   var attachments = req.body.attachments;
   var fallback = undefined;
   if (attachments) {
+    var unknown = _.filter(attachments, function (obj) { return obj.type != "image" && obj.type != "location"; });
+    if (!_.isEmpty(unknown)) {
+      console.log(util.format("groupme: unknown attachments: %j", unknown));
+    }
     attachments = _.pluck(_.filter(attachments, function (obj) { return obj.type == "image"; }), 'url');
     fallback = "GroupMe image attachment";
   }
   if (!text && !attachments) {
     console.log(util.format('/groupme POST without text or attachments:\n%j', req.body));
+    res.status(400).end("Expected text or attachments");
     return;
   }
   slackQueue.push({
@@ -110,9 +122,16 @@ app.post('/groupme', function (req, res) {
   res.status(200).end("Request queued");
 });
 app.post('/slack', function (req, res) {
+  var channel = req.body.channel_name;
+  var gateway = _.find(config.gateways, function (gateway) { return gateway.slack.name == channel });
+  if (gateway === undefined) {
+    console.log('error: unknown slack channel ' + channel);
+    res.status(400).end('unknown channel');
+    return;
+  }
   var token = req.body.token;
-  if (token != config.slack.token) {
-    console.log('error: invalid or missing token from slack endpoint');
+  if (token != gateway.slack.token) {
+    console.log(util.format('error: invalid or missing token from slack endpoint: %j', req.body));
     res.status(400).end('Invalid or missing token');
     return;
   }
@@ -122,13 +141,6 @@ app.post('/slack', function (req, res) {
     return;
   }
 
-  var channel = req.body.channel_name;
-  var gateway = _.find(config.gateways, function (gateway) { return gateway.slack.name == channel });
-  if (gateway === undefined) {
-    console.log('error: unknown slack channel ' + channel);
-    res.status(400).end('unknown channel');
-    return;
-  }
   groupmeQueue.push({
     username: req.body.user_name,
     text: req.body.text,
