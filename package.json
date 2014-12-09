@@ -1,0 +1,32 @@
+{
+  "name": "slack-groupme-gateway",
+  "version": "0.0.0",
+  "description": "Gateway between Slack and GroupMe",
+  "main": "gateway.js",
+  "dependencies": {
+    "async": "~0.9.0",
+    "express": "~4.10.4",
+    "body-parser": "~1.10.0",
+    "request": "~2.49.0",
+    "toml": "~2.0.6",
+    "underscore": "~1.7.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kballard/slack-groupme-gateway.git"
+  },
+  "keywords": [
+    "slack",
+    "groupme",
+    "gateway"
+  ],
+  "author": "Kevin Ballard <kevin@sb.org>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/kballard/slack-groupme-gateway/issues"
+  }
+}
