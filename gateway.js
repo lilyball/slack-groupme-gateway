@@ -98,10 +98,10 @@ app.post('/groupme', function (req, res) {
   var text = req.body.text;
   var attachments = req.body.attachments;
   var fallback = undefined;
-  if (attachments) {
-    var unknown = _.filter(attachments, function (obj) { return obj.type != "image" && obj.type != "location"; });
-    if (!_.isEmpty(unknown)) {
-      console.log(util.format("groupme: unknown attachments: %j", unknown));
+  if (!_.isEmpty(attachments)) {
+    var known_types = ['image', 'location', 'mentions'];
+    if (_.any(attachments, function (obj) { return !_.contains(known_types, obj.type); })) {
+      console.log(util.format("groupme: unknown attachments: %j", req.body));
     }
     attachments = _.pluck(_.filter(attachments, function (obj) { return obj.type == "image"; }), 'url');
     fallback = "GroupMe image attachment";
