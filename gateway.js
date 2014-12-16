@@ -35,7 +35,9 @@ var groupmeQueue = async.queue(function (task, callback) {
       text: text
     }
   }, function (error, response, body) {
-    if (response.statusCode >= 200 && response.statusCode < 300) {
+    if (error) {
+      console.log('groupme POST error: ' + error);
+    } else if (response.statusCode >= 200 && response.statusCode < 300) {
       // success
     } else {
       console.log('groupme error: ' + response.statusCode);
@@ -66,7 +68,9 @@ var slackQueue = async.queue(function (task, callback) {
     url: config.slack.webhook_url,
     json: json
   }, function (error, response, body) {
-    if (response.statusCode == 200) {
+    if (error) {
+      console.log('slack POST error: ' + error);
+    } else if (response.statusCode == 200) {
       // success
     } else {
       console.log('slack error: ' + response.statusCode);
