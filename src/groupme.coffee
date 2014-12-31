@@ -141,8 +141,7 @@ class Client extends EventEmitter
       when 'ping' then # ignore this
       when 'typing' then # why are we getting typing?
       when 'line.create'
-        { user_id, group_id, name, text, system } = subject = msg.subject
-        return if system # don't emit system messages (what are these?)
+        { user_id, group_id, name, text } = subject = msg.subject
         # ensure it has all the expected fields
         return @emit 'error', new Error("Malformed message", msg) if not (user_id? and group_id? and name? and text?)
 
@@ -154,6 +153,7 @@ class Message
   # GroupMe message.
   #
   # @channel: (String) The channel the message was sent to. Expected to be /user/<userid>
+  # @system: (Boolean) True if this is a system message.
   # @user_id: (String) The user_id that sent the message.
   # @group_id: (String) The group_id the message was sent to.
   # @name: (String) The name of the user that sent the message.
@@ -161,7 +161,7 @@ class Message
   # @avatar_url: (String, Optional) The URL of the sender's avatar.
   # @picture_url: (Optional) Unknown.
   # @attachments: (Optional) Unknown.
-  constructor: (@channel, { @user_id, @group_id, @name, @text, @avatar_url, @picture_url, @attachments }) ->
+  constructor: (@channel, { @user_id, @system, @group_id, @name, @text, @avatar_url, @picture_url, @attachments }) ->
 
 class Error extends global.Error
   # GroupMe error.
