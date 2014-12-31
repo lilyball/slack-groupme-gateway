@@ -8,7 +8,7 @@ class Bot extends EventEmitter
   # Arguments:
   #   logger: (Log, Optional) The logger to use.
   constructor: (@logger)->
-    @logger ||= new Log(process.env.LOG_LEVEL || Log.INFO)
+    @logger ||= new Log(process.env.BOT_LOG_LEVEL || Log.INFO)
 
   emitError: (err, args...) ->
     @logger.error err, args...
@@ -40,19 +40,13 @@ class Bot extends EventEmitter
       @logger.info "GroupMe connected"
 
     @groupme.on 'disconnected', =>
-      @logger.info "GroupMe disconnected. Reconnecting in 5 seconds..."
-      setTimeout =>
-        @groupme.connect()
-      , 5000
+      @logger.info "GroupMe disconnected."
 
     @groupme.on 'message', (msg) =>
       @logger.debug 'Received GroupMe message', msg
 
     @groupme.on 'unknown', (type, msg) =>
       @logger.warning 'Unknown GroupMe message %j:', type, msg
-
-    @groupme.on 'status', =>
-      @logger.debug 'GroupMe:', arguments...
 
     @groupme.connect()
 
