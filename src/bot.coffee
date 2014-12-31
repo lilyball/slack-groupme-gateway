@@ -45,7 +45,7 @@ class Bot extends EventEmitter
     @groupme.on 'message', (msg) =>
       @logger.debug 'Received GroupMe message', msg
 
-    @groupme.on 'unknown', (type, msg) =>
+    @groupme.on 'unknown', (type, channel, msg) =>
       @logger.warning 'Unknown GroupMe message %j:', type, msg
 
     @groupme.connect()
