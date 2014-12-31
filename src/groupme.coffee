@@ -1,6 +1,7 @@
 {EventEmitter} = require 'events'
 Faye = require 'faye'
 Util = require 'util'
+ScopedClient = require 'scoped-http-client'
 
 class Client extends EventEmitter
   FAYE_URL: "https://push.groupme.com/faye"
@@ -29,6 +30,10 @@ class Client extends EventEmitter
   #   userid: (String) User ID to subscribe to
   constructor: (@access_token, @userid) ->
     @state = @DISCONNECTED
+    @_http = ScopedClient.create 'https://api.groupme.com/v3'
+                         .header 'Accept', 'application/json'
+                         .header 'Content-Type', 'application/json'
+                         .query 'token', @access_token
 
   # Connects to GroupMe and subscribes to the user channel.
   #
@@ -115,6 +120,21 @@ class Client extends EventEmitter
     @_client = null
     @state = @DISCONNECTED
     @emit 'disconnected'
+
+  # Sends a message to GroupMe.
+  #
+  # bot_id: (String, Required) The bot ID to post as.
+  # text: (String, Required) The text to post.
+  sendMessage: (bot_id, text) ->
+    @_http.scope 'bots/post'
+          .post(JSON.stringify {
+            bot_id
+            text
+          }) (err, resp, body) =>
+      return @emit 'error', new Error("Post error", err) if err
+      # GroupMe documents this call as returning 201, but we should accept any 2xx
+      return @emit 'error', new Error("Post http error", resp.statusCode) unless 200 <= resp.statusCode <= 299
+      # nothing to emit on a successful post
 
   _messageHandler: (channel) -> (msg) ->
     switch msg.type
