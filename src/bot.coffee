@@ -10,11 +10,6 @@ class Bot extends EventEmitter
   constructor: (@logger)->
     @logger ||= new Log(process.env.BOT_LOG_LEVEL || Log.INFO)
 
-  emitError: (err, args...) ->
-    @logger.error err, args...
-    @emit 'error', new Error(Util.format(err, args...))
-    @emit 'error', err, args...
-
   run: ->
     return if @groupme # we can only run once
 
@@ -23,9 +18,9 @@ class Bot extends EventEmitter
       if /^GROUPME_/.test(key) or /^SLACK_/.test(key)
         @options[key] = value
 
-    for key in ["GROUPME_ACCESS_TOKEN", "GROUPME_USER_ID"]
+    for key in ["GROUPME_ACCESS_TOKEN", "GROUPME_USER_ID", "GROUPME_GROUP_ID", "GROUPME_BOT_ID", "GROUPME_BOT_USER_ID"]
       if not @options[key]
-        @emit new ConfigError(key)
+        @emit 'error', new ConfigError(key)
         return false
 
     @groupme = new GroupMe.Client(@options.GROUPME_ACCESS_TOKEN, @options.GROUPME_USER_ID)
@@ -43,6 +38,8 @@ class Bot extends EventEmitter
       @logger.info "GroupMe disconnected."
 
     @groupme.on 'message', (msg) =>
+      return unless msg.group_id == @options.GROUPME_GROUP_ID
+      return if msg.user_id == @options.GROUPME_BOT_USER_ID
       @logger.debug 'Received GroupMe message', msg
 
     @groupme.on 'unknown', (type, channel, msg) =>
