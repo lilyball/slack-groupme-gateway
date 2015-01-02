@@ -2,6 +2,7 @@ Log = require 'log'
 Url = require 'url'
 Q = require 'q'
 Redis = require 'redis'
+Queue = require './queue'
 GroupMe = require './groupme'
 {EventEmitter} = require 'events'
 
@@ -12,6 +13,12 @@ class Bot extends EventEmitter
   #   logger: (Log, Optional) The logger to use.
   constructor: (@logger)->
     @logger ||= new Log(process.env.BOT_LOG_LEVEL || Log.INFO)
+    @groupme_queue = new Queue()
+    @groupme_queue.on 'error', (err) =>
+      if err.stack
+        @logger.error "GroupMe Queue error: #{err.stack}"
+      else
+        @logger.error "GroupMe Queue error:", err
 
   run: ->
     return if @groupme # we can only run once
