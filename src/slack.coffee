@@ -81,6 +81,27 @@ class Client extends EventEmitter
     else
       Q()
 
+  # Returns a Promise.
+  sendMessage: (groupid, username, text, avatar_url) ->
+    http = @_http.scope 'chat.postMessage'
+                 .query 'channel', groupid
+                 .query 'text', text
+                 .query 'parse', 'full'
+    http.query 'username', username if username
+    http.query 'icon_url', avatar_url if avatar_url
+    deferred = Q.defer()
+    http.get() (err, resp, body) =>
+      return deferred.reject err if err
+      unless 200 <= resp.statusCode <= 299
+        return deferred.reject new Error("Slack chat.postMessage code #{resp.statusCode}")
+      try
+        data = JSON.parse(body)
+      catch e
+        return deferred.reject e
+      return deferred.reject data.error unless data.ok
+      deferred.resolve data
+    deferred.promise
+
   # expose utility functions
   ['getUserByID', 'getUserByName', 'getChannelByID', 'getChannelByName'].forEach (key) =>
     @::[key] = (args...) ->
