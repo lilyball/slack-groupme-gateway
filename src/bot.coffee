@@ -40,7 +40,10 @@ class Bot extends EventEmitter
     @groupme.on 'message', (msg) =>
       return unless msg.group_id == @options.GROUPME_GROUP_ID
       return if msg.user_id == @options.GROUPME_BOT_USER_ID
-      @logger.debug 'Received GroupMe message', msg
+      if @logger.level >= Log.DEBUG
+        @logger.debug 'Received GroupMe message', msg
+      else
+        @logger.info 'GroupMe: [%s] %s', msg.name, msg.text
 
     @groupme.on 'unknown', (type, channel, msg) =>
       @logger.warning 'Unknown GroupMe message %j:', type, msg
