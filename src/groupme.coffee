@@ -1,6 +1,7 @@
 {EventEmitter} = require 'events'
 Faye = require 'faye'
 Util = require 'util'
+Q = require 'q'
 ScopedClient = require 'scoped-http-client'
 
 class Client extends EventEmitter
@@ -107,7 +108,13 @@ class Client extends EventEmitter
   # Otherwise, the client disconnects, the state moves to @DISCONNECTED,
   # and the 'disconnected' event is emitted.
   # If the disconnect fails inside Faye, the 'error' event is emitted.
+  #
+  # Returns a promise. The promise is only resolved when Faye finishes the
+  # disconnect, even though the receiver will have already emitted the
+  # 'disconnected' event.
   disconnect: ->
+    unless @_client
+      return Q()
     # When it's connecting, we can't just call disconnect on @_client, Faye
     # seems to ignore that. Instead, we'll disconnect when the connection
     # succeeds, but otherwise throw away @_client immediately.
@@ -120,6 +127,7 @@ class Client extends EventEmitter
     @_client = null
     @state = @DISCONNECTED
     @emit 'disconnected'
+    Q promise
 
   # Sends a message to GroupMe.
   #

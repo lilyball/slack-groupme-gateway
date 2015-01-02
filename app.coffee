@@ -14,3 +14,19 @@ do ->
 
 bot = new Bot
 bot.run()
+
+terminate = (reason) ->
+  console.log 'Closing [%s]...', reason
+  bot.stop().timeout(5000).then ->
+    process.exit()
+  , (reason) ->
+    console.log reason
+    process.exit 1
+sigint = ->
+  process.removeListener 'SIGTERM', sigterm
+  terminate 'SIGINT'
+sigterm = ->
+  process.removeListener 'SIGINT', sigint
+  terminate 'SIGTERM'
+process.once 'SIGINT', sigint
+process.once 'SIGTERM', sigterm

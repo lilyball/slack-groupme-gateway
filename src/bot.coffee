@@ -1,4 +1,5 @@
 Log = require 'log'
+Q = require 'q'
 GroupMe = require './groupme'
 {EventEmitter} = require 'events'
 
@@ -49,6 +50,13 @@ class Bot extends EventEmitter
       @logger.warning 'Unknown GroupMe message %j:', type, msg
 
     @groupme.connect()
+
+  # Stop returns a Promise
+  stop: ->
+    results = []
+    results.push @groupme.disconnect()
+    # results.push @slack.disconnect()
+    Q.all results
 
 class ConfigError extends Error
   # Bot config error.
