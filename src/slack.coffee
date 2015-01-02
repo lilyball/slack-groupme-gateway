@@ -32,14 +32,19 @@ class Client extends EventEmitter
     @_stopped = false
 
     autoReconnect = false # we'll handle that ourselves
-    autoMark = true
+    autoMark = false
     @_slack = new Slack(@api_token, autoReconnect, autoMark)
     @_handlers = {}
 
-    @_slack.once 'loggedIn', @_handlers['loggedIn'] = =>
-      return unless Util.isArray @groups
-      @_last_read = @_slack.getChannelByName(name)?.last_read for name in @groups
-      @_backfill()
+    if @redis
+      @_slack.once 'loggedIn', @_handlers['loggedIn'] = =>
+        @_debug 'loggedIn'
+        if Util.isArray(@groups) and @groups.length > 0
+          @_backfill()
+        else
+          @_debug 'Skipping backfill; no groups configured'
+    else
+      @_debug 'Skipping backfill; no Redis configured'
 
     @_slack.on 'open', @_handlers['open'] = =>
       @emit 'connected'
@@ -108,57 +113,83 @@ class Client extends EventEmitter
       @_slack[key](args...)
 
   _handleMessage: (message) ->
-    if @_buffer?[message.channel]
-      return @_buffer.push message
+    if buffer = @_buffer?[message.channel]
+      return buffer.push message
     setImmediate =>
       @emit 'message', message
+      if @redis
+        Q.ninvoke(@redis, 'set', @_redisGroupKey(message.channel), message.ts).catch (reason) =>
+          @emit 'error', reason
 
   _backfill: () ->
+    @_debug 'Backfilling for groups', @groups
     @_buffer = {}
-    http = @_http.scope 'channels.history'
-    @groups.forEach (group, i) =>
-      last_read = @_last_read[i]
-      unless last_read
-        return @emit 'backfill', group
-      group = @_slack.getChannelByName(group)
-      @_buffer[group.id] = buffer = []
-      deferred = Q.defer()
-      http.query 'channel', group.id
-          .get() (err, resp, body) =>
-        return deferred.reject(err) if err
-        try
-          data = JSON.parse(body)
-        catch e
-          return deferred.reject(e)
-        return deferred.reject data.error unless data.ok
-        deferred.resolve data
-      deferred.promise.then (data) =>
-        for msg in data.messages
-          continue if msg.ts <= last_read
-          msg.channel = group.id
-          msg.backfill = true
-          buffer.push new SlackMessage(@_slack, msg)
-      , (reason) =>
-        @emit 'error', reason
-      .finally =>
-        delete @_buffer[group.id]
-        buffer.sort (a, b) ->
-          switch
-            when a < b then -1
-            when a > b then 1
-            else 0
-        last_ts = ""
-        for msg in buffer
-          continue if msg.ts == last_ts
-          last_ts = msg.ts
-          setImmediate (msg) =>
-            @emit 'message', msg
-          , msg
-        setImmediate (id) =>
-          @emit 'backfill', id
-        , group.id
-        if last_ts
-          group.mark last_ts
-      .done()
+    groups = (@_slack.getChannelByName(name) for name in @groups)
+    @_buffer[group.id] = [] for group in groups
+    Q.npost(@redis, 'mget', @_redisGroupKey(group.id) for group in groups).done (last_reads) =>
+      @_debug 'Redis MGET:', last_reads
+      http = @_http.scope 'channels.history'
+      groups.forEach (group, i) =>
+        last_read = last_reads[i]
+        unless last_read
+          @_debug "Skipping backfill for ##{group.name}, no last_read found"
+          return @_drainBuffer group.id
+        buffer = @_buffer[group.id]
+        deferred = Q.defer()
+        http.query 'channel', group.id
+            .query 'count', 20
+            .get() (err, resp, body) =>
+          return deferred.reject(err) if err
+          try
+            data = JSON.parse(body)
+          catch e
+            return deferred.reject(e)
+          return deferred.reject data.error unless data.ok
+          deferred.resolve data
+        deferred.promise.then (data) =>
+          @_debug "Backfill for ##{group.name} fetched #{data.messages.length} messages"
+          for msg in data.messages
+            continue if msg.ts <= last_read
+            msg.channel = group.id
+            msg.backfill = true
+            buffer.push new SlackMessage(@_slack, msg)
+        , (reason) =>
+          @emit 'error', reason
+        .finally =>
+          @_drainBuffer group.id
+        .done()
+    , (reason) =>
+      @emit 'error', reason
+      @_drainBuffer group.id for group in groups
+
+  _drainBuffer: (groupid) ->
+    buffer = @_buffer[groupid]
+    @_debug "Draining buffer for #{groupid}: #{buffer.length} messages"
+    delete @_buffer[groupid]
+    buffer.sort (a, b) ->
+      switch
+        when a < b then -1
+        when a > b then 1
+        else 0
+    last_ts = ""
+    for msg in buffer
+      continue if msg.ts == last_ts
+      last_ts = msg.ts
+      setImmediate (msg) =>
+        @emit 'message', msg
+      , msg
+    if last_ts and @redis
+      setImmediate =>
+        Q.ninvoke(@redis, 'set', @_redisGroupKey(groupid), last_ts).catch (reason) =>
+          @emit 'error', reason
+    setImmediate =>
+      @emit 'backfill', groupid
+
+  _redisGroupKey: (groupid) ->
+    "slack:channel:#{groupid}:last_read_ts"
+
+  _debug: (message, args...) ->
+    return unless @logger
+    @logger.debug '[Slack]', Util.format(message, args...)
 
 module.exports = { Client }
