@@ -22,6 +22,7 @@ class Client extends EventEmitter
   #   'error': [error: Error]
   #   'transport:up': [] Faye transport is online; informational only
   #   'transport:down': [] Faye transport is offline; informational only
+  #   'backfill': [groupid: String] Emitted when the backfill for a given group is complete.
   #
   # Properties:
   #   @state: (String) 'disconnected', 'pending', or 'connected'
@@ -29,7 +30,10 @@ class Client extends EventEmitter
   # Arguments:
   #   access_token: (String) Access token
   #   userid: (String) User ID to subscribe to
-  constructor: (@access_token, @userid) ->
+  #   groupids: (Array<String>) Group IDs to backfill
+  #   redis: (Redis.Client; Optional) A Redis client object
+  #   logger: (Log; Optional) A Log instance
+  constructor: (@access_token, @userid, @groupids, @redis, @logger) ->
     @state = @DISCONNECTED
     @_http = ScopedClient.create 'https://api.groupme.com/v3'
                          .header 'Accept', 'application/json'
@@ -45,6 +49,9 @@ class Client extends EventEmitter
   # If the subscription fails, the client disconnects, the state moves
   # to @DISCONNECTED, the 'error' event is emitted with the failure reason,
   # and the 'disconnected' event is emitted.
+  #
+  # Any group IDs provided to Client are backfilled using the last known message
+  # stored in Redis. If Redis has no data for the group ID, nothing is backfilled.
   connect: ->
     return if @state != @DISCONNECTED
     @state = @PENDING
@@ -102,6 +109,59 @@ class Client extends EventEmitter
       @emit 'error', reason
       @emit 'disconnected'
 
+    # Backfill groups
+    # We may receive messages from Faye before our backfill is complete.
+    # We need to buffer them so the backfilled messages are emitted first.
+    @_buffer = {}
+    if @redis and Util.isArray(@groupids)
+      @_buffer[groupid] = [] for groupid in @groupids
+      Q.npost(@redis, 'mget', @_redisGroupKey(id) for id in @groupids).done (last_message_ids) =>
+        @_debug "Redis MGET:", last_message_ids
+        @groupids.forEach (groupid, i) =>
+          messageid = last_message_ids[i]
+          if messageid
+            @_debug "Backfilling group", groupid
+            deferred = Q.defer()
+            @_http.scope("groups/#{groupid}/messages").query('since_id', messageid).get() (err, resp, body) =>
+              if err then deferred.reject err
+              else deferred.resolve [resp, body]
+            promise = deferred.promise.then ([resp, body]) =>
+              if resp.statusCode == 304
+                return @_debug "Backfill for #{groupid} found no messages"
+              try
+                data = JSON.parse body
+              catch e
+                @emit 'error', new Error("GET /groups/#{groupid}/messages JSON error", e)
+              if data.meta?.code == 304
+                return @_debug "Backfill for #{groupid} found no messages"
+              if Util.isArray(data.response?.messages)
+                messages = data.response.messages
+                @_debug "Backfill for #{groupid} found #{messages.length} messages"
+                buffer = @_buffer[groupid]
+                for msg in messages
+                  try
+                    message = new Message(channel, msg)
+                  catch
+                    @emit 'error', new Error("Malformed message", msg)
+                    continue
+                  message.backfill = true
+                  buffer.push message
+              else
+                @_debug "Backfill for #{groupid} got malformed data:", data
+            , (reason) =>
+                @emit 'error', new Error("GET /groups/#{groupid}/messages error", reason)
+          else
+            @_debug "Skipping backfill for #{groupid}; no saved message id"
+            promise = Q()
+          promise.finally =>
+            @_drainBuffer groupid
+          .done()
+      , (reason) =>
+        @emit 'error', new Error("Redis MGET error", reason)
+        @_drainBuffer groupid for groupid in @groupids
+    else
+      @_debug "Skipping backfill"
+
   # Disconnects from GroupMe.
   #
   # If the client is not currently connected, nothing happens.
@@ -149,27 +209,74 @@ class Client extends EventEmitter
       when 'ping' then # ignore this
       when 'typing' then # why are we getting typing?
       when 'line.create'
-        { user_id, group_id, name, text } = subject = msg.subject
-        # ensure it has all the expected fields
-        return @emit 'error', new Error("Malformed message", msg) if not (user_id? and group_id? and name? and text?)
-
-        @emit 'message', new Message(channel, subject)
+        @emit 'error', new Error("Malformed message", msg) unless msg.subject
+        try
+          message = new Message(channel, msg.subject)
+        catch
+          return @emit 'error', new Error("Malformed message", msg)
+        if buffer = @_buffer?[msg.subject.group_id]
+          # We're still backfilling, queue up the message
+          return buffer.push message
+        @emit 'message', message
+        if @redis
+          Q.ninvoke(@redis, 'set', @_redisGroupKey(message.group_id), message.id).catch (reason) =>
+            @emit 'error', new Error("Redis SET error", reason)
       else
         @emit 'unknown', msg.type, channel, msg
+
+  _drainBuffer: (groupid) ->
+    return unless @_buffer?[groupid]
+    messages = @_buffer[groupid]
+    @_debug "Draining buffer for group #{groupid}: #{messages.length} messages"
+    delete @_buffer[groupid]
+    messages.sort (a, b) ->
+      switch
+        when a.id < b.id then -1
+        when a.id > b.id then 1
+        else 0
+    last_id = null
+    for msg in messages
+      if last_id == msg.id
+        # duplicate message
+        continue
+      last_id = msg.id
+      setImmediate (msg) =>
+        @emit 'message', msg
+      , msg
+    setImmediate =>
+      @emit 'backfill', groupid
+    if last_id and @redis
+      Q.ninvoke(@redis, 'set', @_redisGroupKey(groupid), last_id).catch (reason) =>
+        @emit 'error', new Error("Redis SET error", reason)
+
+  _debug: (message, args...) ->
+    if @logger
+      @logger.debug "[GroupMe]", Util.format(message, args...)
+
+  _redisGroupKey: (groupid) ->
+    "groupme:group:#{groupid}:messageid"
 
 class Message
   # GroupMe message.
   #
-  # @channel: (String) The channel the message was sent to. Expected to be /user/<userid>
-  # @system: (Boolean) True if this is a system message.
-  # @user_id: (String) The user_id that sent the message.
-  # @group_id: (String) The group_id the message was sent to.
-  # @name: (String) The name of the user that sent the message.
-  # @text: (String) The text of the message.
-  # @avatar_url: (String, Optional) The URL of the sender's avatar.
-  # @picture_url: (Optional) Unknown.
-  # @attachments: (Optional) Unknown.
-  constructor: (@channel, { @user_id, @system, @group_id, @name, @text, @avatar_url, @picture_url, @attachments }) ->
+  # channel: (String) The channel the message was sent to. Expected to be /user/<userid>
+  # message: (Object) The message object from the API. All fields are copied into Message.
+  #
+  # Throws an exception if required fields are missing:
+  # - @id
+  # - @group_id
+  # - @text
+  # - unless @system is true:
+  #   - @user_id
+  #   - @name
+  constructor: (channel, message) ->
+    for own key, value of message
+      @[key] = value
+    @channel = channel
+    required_keys = ['id', 'group_id', 'name']
+    required_keys.concat ['name', 'user_id'] unless @system
+    for key in required_keys
+      throw new Error("Malformed Message", "Missing key #{key}") if not @[key]?
 
 class Error extends global.Error
   # GroupMe error.
@@ -178,7 +285,11 @@ class Error extends global.Error
   # @data: (Any, Optional) Extra data
   constructor: (@type, @data) ->
     @message = Util.format("[%s]", @type)
-    @message += " #{Util.inspect(@data)}" if @data?
+    if @data?
+      if Util.isError(@data)
+        @message += " #{@data.message}"
+      else
+        @message += " #{Util.inspect(@data)}"
     super @message
     Error.captureStackTrace @, @constructor
 
