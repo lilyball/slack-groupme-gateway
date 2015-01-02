@@ -1,10 +1,11 @@
+{EventEmitter} = require 'events'
 Log = require 'log'
 Url = require 'url'
 Q = require 'q'
 Redis = require 'redis'
 Queue = require './queue'
 GroupMe = require './groupme'
-{EventEmitter} = require 'events'
+Slack = require './slack'
 
 class Bot extends EventEmitter
   # The Bot.
@@ -21,17 +22,16 @@ class Bot extends EventEmitter
         @logger.error "GroupMe Queue error:", err
 
   run: ->
-    return if @groupme # we can only run once
+    return if @running # we can only run once
+    @running = true
 
     @options = {}
     for key, value of process.env
       if /^GROUPME_/.test(key) or /^SLACK_/.test(key) or key in ["REDISCLOUD_URL"]
         @options[key] = value
 
-    for key in ["GROUPME_ACCESS_TOKEN", "GROUPME_USER_ID", "GROUPME_GROUP_ID", "GROUPME_BOT_ID", "GROUPME_BOT_USER_ID"]
-      if not @options[key]
-        @emit 'error', new ConfigError(key)
-        return false
+    groupmeInit = @_groupmeInit()
+    slackInit = @_slackInit()
 
     if @options.REDISCLOUD_URL
       redisURL = Url.parse @options.REDISCLOUD_URL
@@ -40,47 +40,110 @@ class Bot extends EventEmitter
         @emit 'error', "Redis error", err
       @redis.auth redisURL.auth.split(':')[1]
 
-    @groupme = new GroupMe.Client(@options.GROUPME_ACCESS_TOKEN, @options.GROUPME_USER_ID, [@options.GROUPME_GROUP_ID], @redis, @logger)
+    groupmeInit()
+    slackInit()
 
-    @groupme.on 'error', (err) =>
-      if err.stack
-        @logger.error err.stack
-      else
-        @logger.error "GroupMe error: #{err.message}"
+  _groupmeInit: ->
+    for key in ["GROUPME_ACCESS_TOKEN", "GROUPME_USER_ID", "GROUPME_GROUP_ID", "GROUPME_BOT_ID", "GROUPME_BOT_USER_ID"]
+      if not @options[key]
+        @emit 'error', new ConfigError(key)
+        return (->)
+    =>
+      @groupme = new GroupMe.Client(@options.GROUPME_ACCESS_TOKEN, @options.GROUPME_USER_ID, [@options.GROUPME_GROUP_ID], @redis, @logger)
 
-    @groupme.on 'connected', =>
-      @logger.info "GroupMe connected"
-
-    @groupme.on 'disconnected', =>
-      @logger.info "GroupMe disconnected."
-
-    @groupme.on 'backfill', (groupid) =>
-      @logger.info "GroupMe backfill for group #{groupid} complete"
-
-    @groupme.on 'message', (msg) =>
-      return unless msg.group_id == @options.GROUPME_GROUP_ID
-      return if msg.user_id == @options.GROUPME_BOT_USER_ID
-      if msg.backfill
-        if @logger.level >= Log.DEBUG
-          @logger.debug 'Received backfilled GroupMe message', msg
+      @groupme.on 'error', (err) =>
+        if err.stack
+          @logger.error err.stack
         else
-          @logger.info 'GroupMe (backfill): [%s] %s', msg.name, msg.text
-      else
-        if @logger.level >= Log.DEBUG
-          @logger.debug 'Received GroupMe message', msg
+          @logger.error "GroupMe error: #{err.message}"
+
+      @groupme.on 'connected', =>
+        @logger.info "GroupMe connected"
+
+      @groupme.on 'disconnected', =>
+        @logger.info "GroupMe disconnected."
+
+      @groupme.on 'backfill', (groupid) =>
+        @logger.info "GroupMe backfill for group #{groupid} complete"
+
+      @groupme.on 'message', (msg) =>
+        return unless msg.group_id == @options.GROUPME_GROUP_ID
+        return if msg.user_id == @options.GROUPME_BOT_USER_ID
+        if msg.backfill
+          if @logger.level >= Log.DEBUG
+            @logger.debug 'Received backfilled GroupMe message', msg
+          else
+            @logger.info 'GroupMe (backfill): [%s] %s', msg.name, msg.text
         else
-          @logger.info 'GroupMe: [%s] %s', msg.name, msg.text
+          if @logger.level >= Log.DEBUG
+            @logger.debug 'Received GroupMe message', msg
+          else
+            @logger.info 'GroupMe: [%s] %s', msg.name, msg.text
 
-    @groupme.on 'unknown', (type, channel, msg) =>
-      @logger.warning 'Unknown GroupMe message %j:', type, msg
+      @groupme.on 'unknown', (type, channel, msg) =>
+        @logger.warning 'Unknown GroupMe message %j:', type, msg
 
-    @groupme.connect()
+      @groupme.connect()
+
+  _slackInit: ->
+    for key in ["SLACK_API_TOKEN", "SLACK_GROUP_NAME", "SLACK_BOT_ID"]
+      if not @options[key]
+        @emit 'error', new ConfigError(key)
+        return (->)
+    =>
+      @slack = new Slack.Client(@options.SLACK_API_TOKEN, [@options.SLACK_GROUP_NAME], @redis, @logger)
+
+      @slack.on 'error', (err) =>
+        if err.stack
+          @logger.error err.stack
+        else
+          @logger.error "Slack error: #{err.message}"
+
+      @slack.on 'connected', =>
+        @logger.info "Slack connected"
+
+      @slack.on 'disconnected', =>
+        @logger.info "Slack disconnected"
+
+      @slack.on 'backfill', (groupid) =>
+        group = @slack.getChannelByID(groupid)
+        @logger.info "Slack backfill for channel ##{group.name} complete"
+
+      @slack.on 'message', (msg) =>
+        return unless @slack.getChannelByID(msg.channel).name == @options.SLACK_GROUP_NAME
+        return if msg.bot_id == @options.SLACK_BOT_ID
+        if @logger.level >= Log.DEBUG
+          # we don't want to log the _client key
+          debugMsg = {}
+          for own key, value of msg
+            debugMsg[key] = value unless key == "_client"
+          if msg.backfill
+            @logger.debug "Received backfilled Slack message", debugMsg
+          else
+            @logger.debug "Received Slack message", debugMsg
+        else
+          text = ""
+          user = @slack.getUserByID msg.user
+          if user
+            text += "[#{user.name}] "
+          else if msg.username
+            if msg.subtype == "bot_message"
+              text += "[bot] "
+            text += "[#{msg.username}] "
+          body = msg.getBody()
+          text += body if body
+          if msg.backfill
+            @logger.info 'Slack (backfill):', text
+          else
+            @logger.info 'Slack:', text
+
+      @slack.connect()
 
   # Stop returns a Promise
   stop: ->
     results = []
     results.push @groupme.disconnect()
-    # results.push @slack.disconnect()
+    results.push @slack.disconnect()
     Q.all(results).finally =>
       Q.ninvoke @redis, 'quit'
 

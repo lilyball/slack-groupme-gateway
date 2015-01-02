@@ -6,6 +6,7 @@ ScopedClient = require 'scoped-http-client'
 
 class Client extends EventEmitter
   FAYE_URL: "https://push.groupme.com/faye"
+  API_URL: "https://api.groupme.com/v3"
 
   # states
   DISCONNECTED: 'disconnected'
@@ -35,7 +36,7 @@ class Client extends EventEmitter
   #   logger: (Log; Optional) A Log instance
   constructor: (@access_token, @userid, @groupids, @redis, @logger) ->
     @state = @DISCONNECTED
-    @_http = ScopedClient.create 'https://api.groupme.com/v3'
+    @_http = ScopedClient.create @API_URL
                          .header 'Accept', 'application/json'
                          .header 'Content-Type', 'application/json'
                          .query 'token', @access_token
@@ -221,16 +222,16 @@ class Client extends EventEmitter
         if buffer = @_buffer?[msg.subject.group_id]
           # We're still backfilling, queue up the message
           return buffer.push message
-        @emit 'message', message
-        if @redis
-          Q.ninvoke(@redis, 'set', @_redisGroupKey(message.group_id), message.id).catch (reason) =>
-            @emit 'error', new Error("Redis SET error", reason)
+        setImmediate =>
+          @emit 'message', message
+          if @redis
+            Q.ninvoke(@redis, 'set', @_redisGroupKey(message.group_id), message.id).catch (reason) =>
+              @emit 'error', new Error("Redis SET error", reason)
       else
         @emit 'unknown', msg.type, channel, msg
 
   _drainBuffer: (groupid) ->
-    return unless @_buffer?[groupid]
-    messages = @_buffer[groupid]
+    return unless messages = @_buffer?[groupid]
     @_debug "Draining buffer for group #{groupid}: #{messages.length} messages"
     delete @_buffer[groupid]
     messages.sort (a, b) ->
@@ -247,11 +248,12 @@ class Client extends EventEmitter
       setImmediate (msg) =>
         @emit 'message', msg
       , msg
+    if last_id and @redis
+      setImmediate =>
+        Q.ninvoke(@redis, 'set', @_redisGroupKey(groupid), last_id).catch (reason) =>
+          @emit 'error', new Error("Redis SET error", reason)
     setImmediate =>
       @emit 'backfill', groupid
-    if last_id and @redis
-      Q.ninvoke(@redis, 'set', @_redisGroupKey(groupid), last_id).catch (reason) =>
-        @emit 'error', new Error("Redis SET error", reason)
 
   _debug: (message, args...) ->
     if @logger
