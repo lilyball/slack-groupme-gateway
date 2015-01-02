@@ -193,16 +193,20 @@ class Client extends EventEmitter
   #
   # bot_id: (String, Required) The bot ID to post as.
   # text: (String, Required) The text to post.
+  #
+  # Returns a Promise.
   sendMessage: (bot_id, text) ->
+    deferred = Q.defer()
     @_http.scope 'bots/post'
           .post(JSON.stringify {
             bot_id
             text
-          }) (err, resp, body) =>
-      return @emit 'error', new Error("Post error", err) if err
+    }) (err, resp, body) =>
+      return deferred.reject(err) if err
       # GroupMe documents this call as returning 201, but we should accept any 2xx
-      return @emit 'error', new Error("Post http error", resp.statusCode) unless 200 <= resp.statusCode <= 299
-      # nothing to emit on a successful post
+      return deferred.reject(new Error("Post http error", resp.statusCode)) unless 200 <= resp.statusCode <= 299
+      deferred.resolve({response: resp, body})
+    deferred.promise
 
   _messageHandler: (channel) -> (msg) ->
     switch msg.type
