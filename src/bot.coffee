@@ -20,6 +20,14 @@ class Bot extends EventEmitter
         @logger.error "GroupMe Queue error: #{err.stack}"
       else
         @logger.error "GroupMe Queue error:", err
+    @groupme_queue.limit 10, 10000
+    @slack_queue = new Queue()
+    @slack_queue.on 'error', (err) =>
+      if err.stack
+        @logger.error "Slack Queue error: #{err.stack}"
+      else
+        @logger.error "Slack Queue error:", err
+    @slack_queue.limit 10, 10000
 
   run: ->
     return if @running # we can only run once
