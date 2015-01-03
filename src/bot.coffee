@@ -88,8 +88,8 @@ class Bot extends EventEmitter
           else
             @logger.info 'GroupMe: [%s] %s', msg.name, msg.text
         @slack_queue.run =>
-          groupid = @slack.getChannelByName(@options.SLACK_GROUP_NAME).id
-          @slack.sendMessage groupid, msg.name, msg.text, msg.avatar_url
+          group = "##{@options.SLACK_GROUP_NAME}"
+          @slack.sendMessage @options.SLACK_WEBHOOK_URL, group, msg.name, msg.text, msg.avatar_url
 
       @groupme.on 'unknown', (type, channel, msg) =>
         @logger.warning 'Unknown GroupMe message %j:', type, msg
@@ -97,7 +97,7 @@ class Bot extends EventEmitter
       @groupme.connect()
 
   _slackInit: ->
-    for key in ["SLACK_API_TOKEN", "SLACK_GROUP_NAME", "SLACK_BOT_ID"]
+    for key in ["SLACK_API_TOKEN", "SLACK_GROUP_NAME", "SLACK_BOT_ID", "SLACK_WEBHOOK_URL"]
       if not @options[key]
         @emit 'error', new ConfigError(key)
         return (->)

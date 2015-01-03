@@ -87,11 +87,11 @@ class Client extends EventEmitter
       Q()
 
   # Returns a Promise.
-  sendMessage: (groupid, username, text, avatar_url) ->
-    http = @_http.scope 'chat.postMessage'
-                 .query 'channel', groupid
-                 .query 'text', text
-                 .query 'parse', 'full'
+  sendMessage: (webhook_url, group, username, text, avatar_url) ->
+    http = ScopedClient.create webhook_url
+    http.query 'channel', group if group
+    http.query 'text', text
+    http.query 'parse', 'full'
     http.query 'username', username if username
     http.query 'icon_url', avatar_url if avatar_url
     deferred = Q.defer()
