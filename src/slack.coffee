@@ -89,13 +89,17 @@ class Client extends EventEmitter
   # Returns a Promise.
   sendMessage: (webhook_url, group, username, text, avatar_url) ->
     http = ScopedClient.create webhook_url
-    http.query 'channel', group if group
-    http.query 'text', text
-    http.query 'parse', 'full'
-    http.query 'username', username if username
-    http.query 'icon_url', avatar_url if avatar_url
+    data = {
+      text: text,
+      parse: 'full'
+    }
+    data.channel = group if group
+    data.username = username if username
+    data.icon_url = avatar_url if avatar_url
+    data = JSON.stringify data
     deferred = Q.defer()
-    http.get() (err, resp, body) =>
+    http.header 'Content-Type', 'application/json'
+        .post(data) (err, resp, body) =>
       return deferred.reject err if err
       unless 200 <= resp.statusCode <= 299
         return deferred.reject new Error("Slack chat.postMessage code #{resp.statusCode}")
