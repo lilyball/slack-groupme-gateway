@@ -213,6 +213,7 @@ class Client extends EventEmitter
     switch msg.type
       when 'ping' then # ignore this
       when 'typing' then # why are we getting typing?
+      when 'subscribe' then # not entirely sure what this is for
       when 'line.create'
         @emit 'error', new Error("Malformed message", msg) unless msg.subject
         try
