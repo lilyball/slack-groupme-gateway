@@ -69,7 +69,7 @@ class Client extends EventEmitter
   # Shuts down the connection and returns a Promise.
   disconnect: ->
     @_stopped = true
-    if @_slack
+    promise = if @_slack
       @_slack.removeListener key, f for key, f of @_handlers
       @_handlers = {}
       deferred = Q.defer()
@@ -85,6 +85,8 @@ class Client extends EventEmitter
       deferred.promise
     else
       Q()
+    promise.finally =>
+      @emit 'disconnected'
 
   # Returns a Promise.
   sendMessage: (webhook_url, group, username, text, avatar_url) ->
