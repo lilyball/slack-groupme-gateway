@@ -89,7 +89,9 @@ class Bot extends EventEmitter
             @logger.info 'GroupMe: [%s] %s', msg.name, msg.text
         @slack_queue.run =>
           group = "##{@options.SLACK_GROUP_NAME}"
-          @slack.sendMessage @options.SLACK_WEBHOOK_URL, group, msg.name, msg.text, msg.avatar_url
+          name = msg.name
+          name += " [groupme]" if name
+          @slack.sendMessage @options.SLACK_WEBHOOK_URL, group, name, msg.text, msg.avatar_url
 
       @groupme.on 'unknown', (type, channel, msg) =>
         @logger.warning 'Unknown GroupMe message %j:', type, msg
