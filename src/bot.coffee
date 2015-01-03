@@ -20,14 +20,14 @@ class Bot extends EventEmitter
         @logger.error "GroupMe Queue error: #{err.stack}"
       else
         @logger.error "GroupMe Queue error:", err
-    @groupme_queue.limit 10, 10000
+    @groupme_queue.throttle 10, 10000
     @slack_queue = new Queue()
     @slack_queue.on 'error', (err) =>
       if err.stack
         @logger.error "Slack Queue error: #{err.stack}"
       else
         @logger.error "Slack Queue error:", err
-    @slack_queue.limit 10, 10000
+    @slack_queue.throttle 10, 10000
 
   run: ->
     return if @running # we can only run once
@@ -87,6 +87,9 @@ class Bot extends EventEmitter
             @logger.debug 'Received GroupMe message', msg
           else
             @logger.info 'GroupMe: [%s] %s', msg.name, msg.text
+        @slack_queue.run =>
+          groupid = @slack.getChannelByName(@options.SLACK_GROUP_NAME).id
+          @slack.sendMessage groupid, msg.name, msg.text, msg.avatar_url
 
       @groupme.on 'unknown', (type, channel, msg) =>
         @logger.warning 'Unknown GroupMe message %j:', type, msg
@@ -120,6 +123,7 @@ class Bot extends EventEmitter
       @slack.on 'message', (msg) =>
         return unless @slack.getChannelByID(msg.channel).name == @options.SLACK_GROUP_NAME
         return if msg.bot_id == @options.SLACK_BOT_ID
+        body = msg.getBody()
         if @logger.level >= Log.DEBUG
           # we don't want to log the _client key
           debugMsg = {}
@@ -129,7 +133,7 @@ class Bot extends EventEmitter
             @logger.debug "Received backfilled Slack message", debugMsg
           else
             @logger.debug "Received Slack message", debugMsg
-        else
+        else if @logger.level >= Log.INFO
           text = ""
           user = @slack.getUserByID msg.user
           if user
@@ -138,12 +142,21 @@ class Bot extends EventEmitter
             if msg.subtype == "bot_message"
               text += "[bot] "
             text += "[#{msg.username}] "
-          body = msg.getBody()
           text += body if body
           if msg.backfill
             @logger.info 'Slack (backfill):', text
           else
             @logger.info 'Slack:', text
+        if body
+          @groupme_queue.run =>
+            user = @slack.getUserByID msg.user
+            text = ""
+            if user
+              text = "[#{user.name}] "
+            else if msg.username
+              text = "[#{msg.username}] "
+            text += body
+            @groupme.sendMessage @options.GROUPME_BOT_ID, text
 
       @slack.connect()
 
