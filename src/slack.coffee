@@ -105,12 +105,7 @@ class Client extends EventEmitter
       return deferred.reject err if err
       unless 200 <= resp.statusCode <= 299
         return deferred.reject new Error("Slack chat.postMessage code #{resp.statusCode}")
-      try
-        data = JSON.parse(body)
-      catch e
-        return deferred.reject e
-      return deferred.reject data.error unless data.ok
-      deferred.resolve data
+      deferred.resolve()
     deferred.promise
 
   # expose utility functions
