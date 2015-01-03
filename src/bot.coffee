@@ -125,7 +125,7 @@ class Bot extends EventEmitter
       @slack.on 'message', (msg) =>
         return unless @slack.getChannelByID(msg.channel).name == @options.SLACK_GROUP_NAME
         return if msg.bot_id == @options.SLACK_BOT_ID
-        body = msg.getBody()
+        body = @slack.parseMessageText msg.getBody()
         if @logger.level >= Log.DEBUG
           # we don't want to log the _client key
           debugMsg = {}

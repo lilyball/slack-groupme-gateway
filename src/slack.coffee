@@ -113,6 +113,49 @@ class Client extends EventEmitter
     @::[key] = (args...) ->
       @_slack[key](args...)
 
+  # Parses Slack-formatted text into a "plain-text" format
+  parseMessageText: (text) ->
+    if not text then return text
+    text.replace ///
+      <         # open angle bracket
+      ([@#!])?  # link type
+      ([^>|]+)  # link
+      (?:\|     # start of label
+        ([^>]+) # label
+      )?        # end of label
+      >         # close angle bracket
+      |
+      &(lt|gt|amp); # entity
+    ///g, (match, type, link, label, entity) =>
+      if link?
+        switch type
+          when '@'
+            return label if label
+            user = @_slack.getUserByID link
+            return "@#{user.name}" if user
+          when '#'
+            return label if label
+            channel = @_slack.getChannelByID link
+            return "##{channel.name}" if channel
+          when '!'
+            if link in ['channel', 'group', 'everyone']
+              return "@#{link}"
+          else
+            link = link.replace /^mailto:/, ''
+            if label and link.indexOf(label) == -1
+              return "#{label} (#{link})"
+        link
+      else
+        switch entity
+          when 'lt'
+            '<'
+          when 'gt'
+            '>'
+          when 'amp'
+            '&'
+          else
+            "&#{entity};" # shouldn't happen
+
   _handleMessage: (message) ->
     if buffer = @_buffer?[message.channel]
       return buffer.push message
