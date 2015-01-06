@@ -31,8 +31,9 @@ class Queue extends EventEmitter
         ms > cutoff
       if @throttle_history.length >= @throttle_num
         oldest = @throttle_history[0]
-        setTimeout oldest - cutoff, =>
+        setTimeout =>
           @_invokeNext()
+        , oldest - cutoff
       else
         @_invokeNext()
     else
