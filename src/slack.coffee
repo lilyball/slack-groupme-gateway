@@ -104,7 +104,7 @@ class Client extends EventEmitter
         .post(data) (err, resp, body) =>
       return deferred.reject err if err
       unless 200 <= resp.statusCode <= 299
-        return deferred.reject new Error("Slack chat.postMessage code #{resp.statusCode}")
+        return deferred.reject new PostError("Slack chat.postMessage code #{resp.statusCode}", data)
       deferred.resolve()
     deferred.promise
 
@@ -236,4 +236,19 @@ class Client extends EventEmitter
     return unless @logger
     @logger.debug '[Slack]', Util.format(message, args...)
 
-module.exports = { Client }
+class PostError extends Error
+  # Slack Post error.
+  #
+  # errmsg: The Error message
+  # data: The data that was posted
+  constructor: (@errmsg, @data) ->
+    if @data
+      @message = "#{@errmsg}\nData: #{Util.inspect @data}"
+    else
+      @message = @errmsg
+    super @message
+    Error.captureStackTrace @, @.constructor
+
+  @::name = 'SlackPostError'
+
+module.exports = { Client, PostError }
